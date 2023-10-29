@@ -1,0 +1,157 @@
+create database weather;
+
+use weather;
+
+drop table if exists current_weather_load;
+
+create table current_weather_load
+(
+	station_id		int             primary key,
+	station_city	varchar(100),
+	station_state	char(2),
+	station_lat		decimal(6,4)    not null,
+	station_lon		decimal(7,4)    not null,
+	as_of_dt		datetime,
+	temp 			int             not null,
+	feels_like		int,
+	wind			int,
+	wind_direction	varchar(3),
+	precipitation   decimal(3,1),
+	pressure		decimal(6,2),
+    visibility      decimal(3,1)    not null,
+	humidity		int,
+	weather_desc	varchar(100)    not null,
+	sunrise			time,
+	sunset			time,
+	constraint cwl_station_lat    check(station_lat between -90 and 90),
+	constraint cwl_station_lon    check(station_lon between -180 and 180),
+	constraint cwl_temp           check(temp between -50 and 150),
+	constraint cwl_feels_like     check(feels_like between -50 and 150),
+	constraint cwl_wind           check(wind between 0 and 300),
+	constraint cwl_wind_direction check(wind_direction in (
+	    'N','S','E','W','NE','NW','SE','SW',
+	    'NNE','ENE','ESE','SSE','SSW','WSW','WNW','NNW')
+	),
+	constraint cwl_precipitation  check(precipitation between 0 and 400),
+	constraint cwl_pressure       check(pressure between 0 and 1100),
+	constraint cwl_visibility     check(visibility between 0 and 20),
+	constraint cwl_humidity       check(humidity between 0 and 100)
+);
+
+drop table if exists current_weather;
+
+create table current_weather like current_weather_load;
+
+-- Create a "trucking" user with the password "Roger".
+create user trucking@localhost identified by 'Roger';
+grant all privileges on weather.* to trucking@localhost;
+
+use weather;
+
+delete from current_weather;
+
+insert into current_weather
+(
+       station_id,
+       station_city,
+       station_state,
+       station_lat,
+       station_lon,
+       as_of_dt,
+       temp,
+       feels_like,
+       wind,
+       wind_direction,
+       precipitation,
+       pressure,
+       visibility,
+       humidity,
+       weather_desc,
+       sunrise,
+       sunset
+)
+select station_id,
+       station_city,
+       station_state,
+       station_lat,
+       station_lon,
+       as_of_dt,
+       temp,
+       feels_like,
+       wind,
+       wind_direction,
+       precipitation,
+       pressure,
+       visibility,
+       humidity,
+       weather_desc,
+       sunrise,
+       sunset
+
+use weather;
+
+delete from current_weather_load;
+
+load data local infile 'weather.csv'
+into table current_weather_load 
+fields terminated by ','
+(
+	station_id,
+	station_city,
+	station_state,
+	station_lat,
+	station_lon,
+	@aod,
+	temp,
+	feels_like,
+	wind,
+	wind_direction,
+	precipitation,
+	pressure,
+	visibility,
+	humidity,
+	weather_desc,
+	sunrise,
+	sunset
+)
+set as_of_dt = str_to_date(@aod,'%Y%m%d %H:%i');
+
+show warnings;
+
+select concat('No data loaded for ',station_id,': ',station_city)
+from   current_weather cw
+where  cw.station_id not in
+(
+    select cwl.station_id
+    from   current_weather_load cwl
+);
+
+#!/bin/bash
+
+cd /home/weather/
+
+if [ ! -f weather.csv ]; then 
+    exit 0
+fi
+
+mysql --local_infile=1 -h 127.0.0.1 -D weather -u trucking -pRoger -s \
+	< load_weather.sql > load_weather.log
+
+if [ ! -s load_weather.log ]; then
+    mysql -h 127.0.0.1 -D weather -u trucking -pRoger -s < copy_weather.sql > copy_weather.log
+fi
+
+mv weather.csv weather.csv.$(date +%Y%m%d%H%M%S)
+
+
+4589,Portland,ME,43.6591,70.2568,20240211 13:26,22,14,13,NNE,2.5,29.91,1.7,34,Heavy Snow,6:45,17:06
+375,Boston,MA,42.3601,71.0589,20240211 13:27,24,15,11,NE,3.4,30.01,2.1,37,Snow,6:46,17:11
+459,Providence,RI,41.8241,71.4128,20240211 13:26,25,15,11,SSW,3.1,27.32,1.7,38,Heavy Snow,6:47,17:14
+778,New York,NY,40.7128,74.006,20240211 13:29,31,22,10,NE,2.2,29.83,3.3,34,Snow,6:55,17:26
+4591,Philadelphia,PA,39.9526,75.1652,20240211 13:30,33,27,12,NW,2,29.85,5.7,88,Rain,6:58,17:32
+753,Washington,DC,38.9072,77.0369,20240211 13:27,35,31,8,SSW,.3,30.51,8.1,74,Drizzle,7:04,17:41
+507,Richmond,VA,37.5407,77.4361,20240211 13:28,43,38,10,S,0,28.14,9.1,64,Partly Cloudy,7:04,17:45
+338,Raleigh,NC,35.7796,78.6382,20240211 13:27,52,51,4,ESE,0,29.33,9.2,56,Partly Sunny,7:06,17:52
+759,Charleston,SC,32.7765,79.9311,20240211 13:28,61,59,6,W,0,29.74,9.5,54,Sunny,7:07,18:02
+103,Jacksonville,FL,30.3322,81.6557,20240211 13:26,67,62,3,WSW,0,29.77,10,55,Sunny,7:10,18:12
+2746,Miami,FL,25.7617,80.1918,20240211 13:28,76,78,1,SW,0,28.14,10,67,Sunny,6:59,18:12
